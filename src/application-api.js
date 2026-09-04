@@ -90,21 +90,15 @@ export async function submitApplication() {
 
 /** Проверить подтверждённую оплату организационного платежа. */
 export async function hasPaidCompetitionFee(userId) {
-  const { data, error } = await supabase
-    .from("payments")
-    .select("id,status")
-    .eq("user_id", userId)
-    .eq("payment_type", "competition_fee")
-    .eq("status", "paid")
-    .limit(1)
-    .maybeSingle();
+  if (!userId) return false;
+  const { data, error } = await supabase.rpc("get_own_payment_access");
 
   if (error) {
     console.error("hasPaidCompetitionFee error:", error);
     return false;
   }
 
-  return Boolean(data);
+  return data?.competition_paid === true;
 }
 
 /** Список документов пользователя. */

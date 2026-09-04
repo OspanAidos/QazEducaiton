@@ -5,6 +5,7 @@ import Reveal from "../components/Reveal.jsx";
 import { media } from "../media.js";
 import { Field, SubmitButton } from "../components/form.jsx";
 import { Button } from "../components/ui.jsx";
+import PaymentCheckout from "../components/PaymentCheckout.jsx";
 import { useAuth } from "../auth-context.jsx";
 import { isSupabaseConfigured, supabase } from "../supabase.js";
 import { Notice, PageHead, Section } from "../components/page-blocks.jsx";
@@ -164,12 +165,7 @@ export default function Match() {
     async function loadAccess() {
       setAccess((current) => ({ ...current, loading: true }));
 
-      const { data, error } = await supabase
-        .from("payments")
-        .select("payment_type,status,amount_tenge")
-        .eq("user_id", user.id)
-        .eq("status", "paid")
-        .in("payment_type", ["competition_fee", "university_match"]);
+      const { data, error } = await supabase.rpc("get_own_payment_access");
 
       if (!active) return;
 
@@ -179,13 +175,8 @@ export default function Match() {
         return;
       }
 
-      const payments = Array.isArray(data) ? data : [];
-      const hasCompetitionFee = payments.some(
-        (item) => item.payment_type === "competition_fee"
-      );
-      const hasMatchPayment = payments.some(
-        (item) => item.payment_type === "university_match"
-      );
+      const hasCompetitionFee = data?.competition_paid === true;
+      const hasMatchPayment = data?.match_paid === true;
 
       setAccess({
         loading: false,
@@ -232,8 +223,8 @@ export default function Match() {
           copy={copy}
           user={user}
           access={access}
-          onPaymentConfirmed={() =>
-            setAccess({ loading: false, allowed: true, source: "university_match" })
+          onPaymentConfirmed={(payment) =>
+            setAccess({ loading: false, allowed: true, source: payment.payment_type })
           }
         />
 
@@ -301,57 +292,7 @@ export default function Match() {
 
 
 function MatchAccessCard({ copy, user, access, onPaymentConfirmed }) {
-  const [payment, setPayment] = useState({ status: "none" });
-  const [paymentMessage, setPaymentMessage] = useState("");
-  const [paymentBusy, setPaymentBusy] = useState(false);
-
-  const requestPayment = async (action) => {
-    const { data, error } = await supabase.functions.invoke("apipay-invoice", {
-      body: {
-        action,
-        payment_type: "university_match",
-      },
-    });
-
-    if (error || data?.ok === false) {
-      throw new Error(data?.message || error?.message || copy.paymentError);
-    }
-
-    const nextStatus = data?.status || "none";
-    setPayment(data || { status: nextStatus });
-    if (nextStatus === "paid") onPaymentConfirmed?.();
-    return data;
-  };
-
-  useEffect(() => {
-    if (!user || access.allowed) return undefined;
-    requestPayment("status").catch(() => {
-      // Отсутствие предыдущего счёта — штатное состояние.
-    });
-    return undefined;
-  }, [user?.id, access.allowed]);
-
-  useEffect(() => {
-    if (!user || access.allowed || payment.status !== "pending") return undefined;
-    const interval = window.setInterval(() => {
-      requestPayment("status").catch(() => {});
-    }, 4000);
-    return () => window.clearInterval(interval);
-  }, [user?.id, access.allowed, payment.status, payment.invoice_id]);
-
-  const createMatchInvoice = async () => {
-    setPaymentBusy(true);
-    setPaymentMessage("");
-    try {
-      await requestPayment("create");
-    } catch (error) {
-      setPaymentMessage(error.message || copy.paymentError);
-      setPayment({ status: "error" });
-    } finally {
-      setPaymentBusy(false);
-    }
-  };
-
+  const lang = useLang();
   if (access.loading) {
     return (
       <div className="mb-10 rounded-block border border-line bg-bg-2 p-7 lg:mb-14 lg:p-9">
@@ -391,81 +332,11 @@ function MatchAccessCard({ copy, user, access, onPaymentConfirmed }) {
     );
   }
 
-  return (
-    <div className="mb-10 rounded-block border border-line bg-bg-2 p-7 lg:mb-14 lg:p-9">
-      <div className="grid gap-8 lg:grid-cols-12 lg:items-start">
-        <div className="lg:col-span-5">
-          <span className="rounded-full border border-line px-3 py-1 text-xs uppercase tracking-[0.08em] text-muted">
-            {copy.standalone}
-          </span>
-          <h2 className="mt-6 font-display text-3xl font-bold tracking-tight text-ink">
-            {copy.title}
-          </h2>
-          <p className="mt-3 font-display text-[clamp(2.5rem,7vw,4.5rem)] font-extrabold leading-none tracking-[-0.05em] text-accent">
-            {copy.price}
-          </p>
-          <p className="mt-5 max-w-[44ch] text-base leading-relaxed text-ink-2">
-            {copy.text}
-          </p>
-          <p className="mt-4 max-w-[52ch] text-sm leading-relaxed text-muted">
-            {copy.included}
-          </p>
-
-          {!user && (
-            <>
-              <p className="mt-6 max-w-[50ch] text-sm leading-relaxed text-ink-2">
-                {copy.loginText}
-              </p>
-              <Button to="/login" className="mt-5">
-                {copy.login}
-              </Button>
-            </>
-          )}
-        </div>
-
-        <div className="lg:col-span-7">
-          <div className="flex min-h-[230px] flex-col items-center justify-center rounded-2xl border border-line bg-bg p-6 text-center">
-            <div className="flex h-10 min-w-[150px] items-center justify-center rounded-full border border-accent/40 px-4 text-xs uppercase tracking-[0.08em] text-accent">
-              ApiPay.kz
-            </div>
-            <h3 className="mt-4 font-display text-lg font-medium text-ink">
-              {copy.payTitle}
-            </h3>
-            <p className="mt-2 max-w-[34ch] text-sm leading-relaxed text-muted">
-              {payment.status === "pending"
-                ? copy.pending
-                : paymentMessage || copy.payText}
-            </p>
-            {user && payment.status === "pending" && payment.qr_image_url && (
-              <div className="mt-5 w-full max-w-xs">
-                <div className="overflow-hidden rounded-2xl border border-line bg-white p-3">
-                  <img src={payment.qr_image_url} alt="Kaspi QR" className="aspect-square w-full object-contain" />
-                </div>
-                {payment.qr_token_url && (
-                  <a href={payment.qr_token_url} className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-full border border-accent px-5 text-sm font-medium text-accent">
-                    {copy.openKaspi}
-                  </a>
-                )}
-              </div>
-            )}
-            {user && payment.status !== "pending" && payment.status !== "paid" && (
-              <div className="mt-5 w-full max-w-sm">
-                <button
-                  type="button"
-                  onClick={createMatchInvoice}
-                  disabled={paymentBusy}
-                  className="mt-5 inline-flex min-h-12 w-full items-center justify-center rounded-full bg-accent px-6 font-medium text-on-accent disabled:opacity-50"
-                >
-                  {paymentBusy ? copy.loading : copy.payAction}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <div className="mb-10 lg:mb-14">
+    <PaymentCheckout lang={lang} paymentType="university_match" onPaymentConfirmed={onPaymentConfirmed} />
+  </div>;
 }
+
 
 /** До первого расчёта: подсказка, что делать. */
 function EmptyState({ ui }) {

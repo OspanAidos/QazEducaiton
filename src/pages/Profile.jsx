@@ -7,7 +7,7 @@ import { Button } from "../components/ui.jsx";
 import { PageHead, Section } from "../components/page-blocks.jsx";
 import { Check } from "@phosphor-icons/react";
 import { isSupabaseConfigured, supabase } from "../supabase.js";
-import { applicationProgress, paymentLabel } from "../admin-domain.js";
+import { applicationProgress, paymentLabel, isCompetitionPaid } from "../admin-domain.js";
 
 function computeProgress(profile) {
   const fields = [profile?.first_name, profile?.last_name, profile?.phone];
@@ -43,7 +43,7 @@ export default function Profile() {
     application,
     signOut,
   } = useAuth();
-  const [payment, setPayment] = useState(null);
+  const [payments, setPayments] = useState([]);
   const [documents, setDocuments] = useState([]);
 
   useEffect(() => {
@@ -53,26 +53,23 @@ export default function Profile() {
     Promise.all([
       supabase
         .from("payments")
-        .select("id,status,amount_tenge,paid_at,provider")
+        .select("id,user_id,payment_type,status,amount_tenge,paid_at,provider,credit_payment_id,is_sandbox,refunded_tenge")
         .eq("user_id", user.id)
-        .eq("payment_type", "competition_fee")
-        .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .order("created_at", { ascending: false }),
       supabase
         .from("application_documents")
         .select("id,kind")
         .eq("application_id", application.id),
     ]).then(([paymentResult, documentsResult]) => {
       if (!active) return;
-      setPayment(paymentResult.error ? null : paymentResult.data);
+      setPayments(paymentResult.error ? [] : paymentResult.data || []);
       setDocuments(documentsResult.error ? [] : documentsResult.data || []);
     });
 
     return () => {
       active = false;
     };
-  }, [application?.id, user?.id]);
+  }, [application?.id, application?.status, user?.id]);
 
   if (!user) return null;
 
@@ -97,7 +94,7 @@ export default function Profile() {
   const progress = application?.data
     ? applicationProgress({ ...application, documents })
     : application?.progress ?? computeProgress(profile);
-  const paid = payment?.status === "paid" && Number(payment?.amount_tenge) === 10000;
+  const paid = isCompetitionPaid({ payments });
 
   const deadline = formatDeadline(
     application?.deadline,
@@ -196,7 +193,7 @@ export default function Profile() {
             label={lang === "kk" ? "Қатысу төлемі" : "Оплата участия"}
             value={paid
               ? (lang === "kk" ? "Расталды" : "Подтверждена")
-              : paymentLabel({ payments: payment ? [payment] : [] })}
+              : paymentLabel({ payments })}
             muted={!paid}
           />
         </div>

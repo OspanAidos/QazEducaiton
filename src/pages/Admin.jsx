@@ -181,7 +181,7 @@ export default function Admin() {
         supabase
           .from("payments")
           .select(
-            "id,user_id,payment_type,amount_tenge,status,provider,provider_payment_id,metadata,paid_at,created_at,updated_at"
+            "id,user_id,payment_type,amount_tenge,status,provider,provider_payment_id,metadata,paid_at,created_at,updated_at,credit_payment_id,is_sandbox,refunded_tenge"
           ),
         supabase
           .from("commission_scores")

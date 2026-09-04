@@ -72,6 +72,7 @@ export const PAYMENT_STATUS_LABELS = {
   paid: "Оплачено",
   cancelled: "Отменено",
   refunded: "Возвращено",
+  partially_refunded: "Частично возвращено",
 };
 
 export const DOCUMENT_REVIEW_LABELS = {
@@ -190,14 +191,19 @@ export function competitionPayment(row) {
         new Date(a.paid_at || a.updated_at || a.created_at || 0).getTime()
     );
 
-  return payments.find((item) => item.status === "paid") || payments[0] || null;
+  return payments.find((item) => confirmedCompetitionPayment(item, row?.payments ?? [])) || payments[0] || null;
+}
+
+function confirmedCompetitionPayment(payment, payments) {
+  const eligible = p => p?.status === "paid" && !p.is_sandbox && Number(p.refunded_tenge || 0) === 0;
+  return eligible(payment) && (Number(payment.amount_tenge) === 10000 ||
+    (Number(payment.amount_tenge) === 7000 && payments.some(credit =>
+      credit.id === payment.credit_payment_id && credit.user_id === payment.user_id &&
+      credit.payment_type === "university_match" && Number(credit.amount_tenge) === 3000 && eligible(credit))));
 }
 
 export function isCompetitionPaid(row) {
-  const payment = competitionPayment(row);
-  return (
-    payment?.status === "paid" && Number(payment.amount_tenge) === 10000
-  );
+  return confirmedCompetitionPayment(competitionPayment(row), row?.payments ?? []);
 }
 
 export function paymentLabel(row, withAmount = true) {
@@ -205,7 +211,8 @@ export function paymentLabel(row, withAmount = true) {
   if (!payment) return "Не подтверждено";
 
   const label = PAYMENT_STATUS_LABELS[payment.status] ?? payment.status;
-  return payment.status === "paid" && withAmount ? `${label} · 10 000 ₸` : label;
+  if (payment.status === "paid" && !isCompetitionPaid(row)) return "Требуется сверка";
+  return payment.status === "paid" && withAmount ? `${label} · ${Number(payment.amount_tenge).toLocaleString("ru-RU")} ₸${payment.credit_payment_id ? " + 3 000 ₸ зачтено" : ""}` : label;
 }
 
 export function requiredDocumentGroups(row) {
