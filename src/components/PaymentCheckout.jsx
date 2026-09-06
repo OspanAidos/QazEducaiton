@@ -46,6 +46,13 @@ export default function PaymentCheckout({ lang = "ru", paymentType = "competitio
         // Payment is already committed on the server; UI refresh cannot undo it.
         Promise.resolve(callbacks.current.refreshApplication?.()).catch(() => {});
         callbacks.current.onPaymentConfirmed?.(data);
+        if (data.submission?.application_id) {
+          // The webhook also attempts this dispatch. Queue claiming keeps the
+          // duplicate browser fallback safe and prevents duplicate messages.
+          supabase.functions.invoke("telegram-notify", {
+            body: { application_id: data.submission.application_id },
+          }).catch(() => {});
+        }
       }
       return data;
     } catch (error) {

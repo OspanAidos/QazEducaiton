@@ -32,6 +32,7 @@ const NotFound = lazy(() => import("./pages/NotFound.jsx"));
 const LegalDoc = lazy(() => import("./pages/LegalDoc.jsx"));
 const Admin = lazy(() => import("./pages/Admin.jsx"));
 const Commission = lazy(() => import("./pages/Commission.jsx"));
+const CertificateVerify = lazy(() => import("./pages/CertificateVerify.jsx"));
 
 function titleFor(pathname, lang) {
   const set = pages[lang] ?? pages.ru;
@@ -54,6 +55,11 @@ function titleFor(pathname, lang) {
   }
   if (pathname === "/admin") return "Админ-панель - QazEducation";
   if (pathname === "/commission") return "Панель комиссии - QazEducation";
+  if (pathname.startsWith("/certificate/")) {
+    return lang === "kk"
+      ? "Сертификатты тексеру - QazEducation"
+      : "Проверка сертификата - QazEducation";
+  }
 
   return hit?.metaTitle ?? "QazEducation - грант, стипендия, Top-30";
 }
@@ -193,6 +199,7 @@ function Layout() {
             <Route path="/auth/callback" element={<AuthCallback />} />
             <Route path="/match" element={<Match />} />
             <Route path="/results" element={<Results />} />
+            <Route path="/certificate/:token" element={<CertificateVerify />} />
 
             <Route
               path="/profile"

@@ -1,4 +1,5 @@
 import { supabase } from "./supabase.js";
+import { syncOwnApplication } from "./amocrm-sync.js";
 
 /**
  * API заявки поверх Supabase.
@@ -38,6 +39,8 @@ export async function saveDraft(userId, patch) {
     console.error("saveDraft error:", error);
     return { ok: false, error };
   }
+
+  void syncOwnApplication("draft_saved");
 
   return { ok: true, data: nextData };
 }
@@ -83,6 +86,10 @@ export async function submitApplication() {
         notifyError || notifyData
       );
     }
+  }
+
+  if (!error) {
+    void syncOwnApplication("application_submitted");
   }
 
   return { ok: true, data };

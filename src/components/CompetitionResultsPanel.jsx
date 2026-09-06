@@ -2,6 +2,11 @@ import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase.js";
 
 const CYCLE_ID = 2026;
+const DELIVERY_EVENT_TYPES = [
+  "competition_result",
+  "competition_final_rejected",
+  "certificate_issued",
+];
 
 const CYCLE_LABELS = {
   open: "Приём заявок открыт",
@@ -98,6 +103,9 @@ export default function CompetitionResultsPanel({
   const [busy, setBusy] = useState(false);
   const [confirmPublish, setConfirmPublish] = useState(false);
   const [delivery, setDelivery] = useState({ pending: 0, failed: 0, sent: 0 });
+  const [basisDocument, setBasisDocument] = useState("Протокол конкурсной комиссии");
+  const [basisNumber, setBasisNumber] = useState("");
+  const [basisDate, setBasisDate] = useState("");
   const rowsVersion = rows
     .map(
       (row) =>
@@ -115,7 +123,7 @@ export default function CompetitionResultsPanel({
         supabase
           .from("competition_cycles")
           .select(
-            "id,status,grant_quota,scholarship_quota,top30_quota,applications_closed_at,results_published_at,published_by"
+            "id,status,grant_quota,scholarship_quota,top30_quota,applications_closed_at,results_published_at,published_by,certificate_basis_document,certificate_basis_number,certificate_basis_date"
           )
           .eq("id", CYCLE_ID)
           .maybeSingle(),
@@ -126,19 +134,19 @@ export default function CompetitionResultsPanel({
           .from("notifications")
           .select("id", { count: "exact", head: true })
           .eq("channel", "telegram")
-          .in("event_type", ["competition_result", "competition_final_rejected"])
+          .in("event_type", DELIVERY_EVENT_TYPES)
           .eq("status", "pending"),
         supabase
           .from("notifications")
           .select("id", { count: "exact", head: true })
           .eq("channel", "telegram")
-          .in("event_type", ["competition_result", "competition_final_rejected"])
+          .in("event_type", DELIVERY_EVENT_TYPES)
           .eq("status", "failed"),
         supabase
           .from("notifications")
           .select("id", { count: "exact", head: true })
           .eq("channel", "telegram")
-          .in("event_type", ["competition_result", "competition_final_rejected"])
+          .in("event_type", DELIVERY_EVENT_TYPES)
           .eq("status", "sent"),
       ]);
 
@@ -156,6 +164,11 @@ export default function CompetitionResultsPanel({
     }
 
     setCycle(cycleRes.data || null);
+    setBasisDocument(
+      cycleRes.data?.certificate_basis_document || "Протокол конкурсной комиссии"
+    );
+    setBasisNumber(cycleRes.data?.certificate_basis_number || "");
+    setBasisDate(cycleRes.data?.certificate_basis_date || "");
     setPreview(previewRes.error ? [] : previewRes.data || []);
     setDelivery({
       pending: Number(pendingRes.count || 0),
@@ -278,6 +291,28 @@ export default function CompetitionResultsPanel({
     await loadState();
   };
 
+  const saveCertificateBasis = async () => {
+    if (busy) return;
+    setBusy(true);
+    onError?.("");
+
+    const { error } = await supabase.rpc("set_competition_certificate_basis", {
+      p_cycle_id: CYCLE_ID,
+      p_document: basisDocument,
+      p_number: basisNumber,
+      p_date: basisDate || null,
+    });
+
+    setBusy(false);
+    if (error) {
+      onError?.(error.message);
+      return;
+    }
+
+    onToast?.("Основание итоговых сертификатов сохранено.");
+    await loadState();
+  };
+
   const dispatchResultNotifications = async ({ retryFailed = false } = {}) => {
     let guard = 0;
     let lastRemaining = null;
@@ -327,6 +362,29 @@ export default function CompetitionResultsPanel({
 
     await loadState();
     return { sent: aggregateSent, failed: aggregateFailed };
+  };
+
+  const syncCertificates = async () => {
+    if (busy) return;
+    setBusy(true);
+    onError?.("");
+
+    try {
+      const { data, error } = await supabase.rpc("admin_sync_certificates", {
+        p_cycle_id: CYCLE_ID,
+      });
+      if (error) throw error;
+
+      const deliveryResult = await dispatchResultNotifications();
+      onToast?.(
+        `Сертификаты синхронизированы. Активных: ${data?.active_certificates ?? 0}, создано сейчас: ${data?.issued_now ?? 0}, Telegram отправлено: ${deliveryResult.sent}.`
+      );
+    } catch (syncError) {
+      onError?.(syncError?.message || "Не удалось синхронизировать сертификаты.");
+    } finally {
+      setBusy(false);
+      await loadState();
+    }
   };
 
   const publishResults = async () => {
@@ -397,7 +455,7 @@ export default function CompetitionResultsPanel({
         .from("notifications")
         .update({ status: "pending" })
         .eq("channel", "telegram")
-        .in("event_type", ["competition_result", "competition_final_rejected"])
+        .in("event_type", DELIVERY_EVENT_TYPES)
         .eq("status", "failed");
 
       if (resetError) throw resetError;
@@ -483,6 +541,69 @@ export default function CompetitionResultsPanel({
           />
           <Stat label="Top-30" value={grouped.top30.length} note="резерв" />
           <Stat label="Не прошли" value={grouped.not_selected.length} />
+        </div>
+
+        <div className="mt-6 rounded-2xl border border-line bg-bg p-5">
+          <h3 className="font-display text-lg font-bold text-ink">
+            Основание сертификатов победителей и финалистов
+          </h3>
+          <p className="mt-2 max-w-[80ch] text-sm leading-relaxed text-ink-2">
+            Эти данные попадут в сертификаты гранта, стипендии и Top-30. Если
+            номер или дата не указаны, система использует дату публикации и
+            формулировку «Решение конкурсной комиссии».
+          </p>
+          <div className="mt-5 grid gap-4 lg:grid-cols-[1.5fr_0.8fr_0.8fr_auto] lg:items-end">
+            <label className="grid gap-2 text-sm text-ink-2">
+              Документ
+              <input
+                value={basisDocument}
+                maxLength={120}
+                onChange={(event) => setBasisDocument(event.target.value)}
+                className="min-h-11 rounded-xl border border-line bg-bg-2 px-4 text-ink outline-none transition focus:border-accent"
+                placeholder="Протокол конкурсной комиссии"
+              />
+            </label>
+            <label className="grid gap-2 text-sm text-ink-2">
+              Номер
+              <input
+                value={basisNumber}
+                maxLength={60}
+                onChange={(event) => setBasisNumber(event.target.value)}
+                className="min-h-11 rounded-xl border border-line bg-bg-2 px-4 text-ink outline-none transition focus:border-accent"
+                placeholder="12/2026"
+              />
+            </label>
+            <label className="grid gap-2 text-sm text-ink-2">
+              Дата
+              <input
+                type="date"
+                value={basisDate}
+                onChange={(event) => setBasisDate(event.target.value)}
+                className="min-h-11 rounded-xl border border-line bg-bg-2 px-4 text-ink outline-none transition focus:border-accent"
+              />
+            </label>
+            <button
+              type="button"
+              disabled={busy}
+              onClick={saveCertificateBasis}
+              className="min-h-11 rounded-full border border-accent px-5 text-sm font-medium text-accent transition hover:bg-accent hover:text-on-accent disabled:opacity-50"
+            >
+              Сохранить
+            </button>
+          </div>
+          <div className="mt-4 border-t border-line pt-4">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={syncCertificates}
+              className="rounded-full border border-line px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent hover:text-accent disabled:opacity-50"
+            >
+              Выдать недостающие сертификаты
+            </button>
+            <p className="mt-2 text-xs leading-relaxed text-muted">
+              Повторный запуск безопасен: действующие сертификаты не дублируются.
+            </p>
+          </div>
         </div>
 
         <div className="mt-6 grid gap-3 lg:grid-cols-3">
@@ -616,8 +737,8 @@ export default function CompetitionResultsPanel({
           <div className="mt-7 rounded-2xl border border-line bg-bg p-5">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
               <div>
-                <p className="text-xs uppercase tracking-[0.08em] text-muted">
-                  Telegram-рассылка результатов
+                <p className="text-base font-semibold text-ink">
+                  Telegram-рассылка результатов и сертификатов
                 </p>
                 <p className="mt-2 text-sm text-ink-2">
                   Итоги опубликованы {formatDate(cycle?.results_published_at)}.

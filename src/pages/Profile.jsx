@@ -8,6 +8,7 @@ import { PageHead, Section } from "../components/page-blocks.jsx";
 import { Check } from "@phosphor-icons/react";
 import { isSupabaseConfigured, supabase } from "../supabase.js";
 import { applicationProgress, paymentLabel, isCompetitionPaid } from "../admin-domain.js";
+import CertificatesPanel from "../components/CertificatesPanel.jsx";
 
 function computeProgress(profile) {
   const fields = [profile?.first_name, profile?.last_name, profile?.phone];
@@ -342,6 +343,8 @@ export default function Profile() {
             {t.editHint}
           </p>
         </div>
+
+        <CertificatesPanel userId={user.id} />
       </Section>
     </>
   );

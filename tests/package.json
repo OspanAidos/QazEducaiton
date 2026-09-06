@@ -2,6 +2,6 @@
   "name": "qazeducation-qr-local-tests",
   "private": true,
   "type": "module",
-  "scripts": { "test": "node --test qr-core.test.mjs qr-database.test.mjs qr-http.test.mjs" },
+  "scripts": { "test": "node --test *.test.mjs" },
   "devDependencies": { "@electric-sql/pglite": "0.5.8" }
 }

@@ -641,6 +641,7 @@ begin
     error_text = coalesce(error_text, 'Заменено более новым уведомлением по заявке')
   where application_id = new.id
     and channel = 'telegram'
+    and event_type <> 'certificate_issued'
     and status in ('pending', 'failed');
 
   insert into public.notifications (

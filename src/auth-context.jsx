@@ -8,6 +8,7 @@ import {
 } from "react";
 import { supabase } from "./supabase.js";
 import { finishTelegramBotAuth } from "./telegram-bot-auth.js";
+import { syncOwnApplication } from "./amocrm-sync.js";
 
 const AuthContext = createContext(null);
 const APPLICATION_FIELDS =
@@ -215,6 +216,9 @@ export function AuthProvider({ children }) {
             error: consentError || new Error("Не удалось сохранить имя и фамилию."),
           };
         }
+
+        // Повторный вызов безопасен: одна заявка обновляет одну сделку по UUID.
+        void syncOwnApplication("registration_completed");
       }
 
       window.setTimeout(() => {

@@ -6,6 +6,8 @@ import { Section } from "../components/page-blocks.jsx";
 import { Logo } from "../components/ui.jsx";
 import CompetitionResultsPanel from "../components/CompetitionResultsPanel.jsx";
 import AppealsPanel from "../components/AppealsPanel.jsx";
+import AmoCrmPanel from "../components/AmoCrmPanel.jsx";
+import { syncApplicationAsAdmin } from "../amocrm-sync.js";
 import {
   DECISION_LABELS,
   DOC_LABELS,
@@ -636,6 +638,11 @@ export default function Admin() {
     }
 
     const notificationResult = await dispatchTelegramNotifications(selected.id);
+    try {
+      await syncApplicationAsAdmin(selected.id);
+    } catch (crmError) {
+      console.warn("amoCRM sync after admin action:", crmError);
+    }
 
     await loadRows();
     setBusy(false);
@@ -1242,8 +1249,9 @@ export default function Admin() {
           <CompactStat label="Конкурсный цикл" value="2026" />
           <CompactStat label="Оплата участия" value="10 000 ₸ · Kaspi QR" />
           <CompactStat label="Гранты" value="10 мест" />
-          <CompactStat label="Стипендии" value="50 мест" note="Top-30 — отдельный рейтинг" />
+          <CompactStat label="Стипендии" value="30 мест" note="Top-30 — отдельный рейтинг" />
         </div>
+        <AmoCrmPanel onToast={setToast} onError={setError} />
       </Section>
     </>
   );

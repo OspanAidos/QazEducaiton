@@ -8,10 +8,18 @@ verify_jwt = false
 verify_jwt = false
 
 [functions.telegram-notify]
-verify_jwt = true
+# Функция сама проверяет либо JWT пользователя, либо точный серверный ключ.
+# Это нужно для безопасного вызова webhook -> telegram-notify с новым sb_secret.
+verify_jwt = false
 
 [functions.apipay-invoice]
 verify_jwt = true
 
 [functions.apipay-webhook]
 verify_jwt = false
+
+[functions.amocrm-sync]
+verify_jwt = true
+
+[functions.certificate-file]
+verify_jwt = true

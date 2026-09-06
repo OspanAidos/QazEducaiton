@@ -16,10 +16,7 @@ function json(data: unknown, status = 200) {
   });
 }
 
-function getAdminClient() {
-  const url = Deno.env.get("SUPABASE_URL");
-  if (!url) throw new Error("SUPABASE_URL is missing");
-
+function getServerKey() {
   let key = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") || "";
 
   const secretKeysRaw = Deno.env.get("SUPABASE_SECRET_KEYS");
@@ -35,6 +32,15 @@ function getAdminClient() {
   if (!key) {
     throw new Error("No Supabase server secret key is available");
   }
+
+  return key;
+}
+
+function getAdminClient() {
+  const url = Deno.env.get("SUPABASE_URL");
+  if (!url) throw new Error("SUPABASE_URL is missing");
+
+  const key = getServerKey();
 
   return createClient(url, key, {
     auth: {
@@ -69,6 +75,8 @@ function buildMessage(params: {
   const comment = escapeHtml(payload?.admin_comment);
   const decision = String(payload?.decision ?? "");
   const status = String(payload?.status ?? "");
+  const certificateNumber = escapeHtml(payload?.certificate_number);
+  const certificateType = String(payload?.certificate_type ?? "");
   const safeName = escapeHtml(firstName || "");
   const hello = safeName
     ? lang === "kk"
@@ -114,6 +122,17 @@ function buildMessage(params: {
         }
         return `${hello}<b>QazEducation конкурсының қорытындысы жарияланды.</b>\n\n№ <b>${number}</b> өтінімінің нәтижесін жеке кабинеттен қараңыз.`;
 
+      case "certificate_issued": {
+        const label = certificateType === "participant"
+          ? "қатысушы сертификаты"
+          : certificateType === "grant"
+            ? "білім беру гранты жеңімпазының сертификаты"
+            : certificateType === "scholarship"
+              ? "стипендиат сертификаты"
+              : "Top-30 финалист сертификаты";
+        return `${hello}📜 <b>Сертификат дайын</b>\n\nСізге ${label} берілді.${certificateNumber ? `\nСертификат № <b>${certificateNumber}</b>` : ""}\n\nЖүктеу және QR арқылы тексеру: https://qazeducation.kz/profile#certificates`;
+      }
+
       default:
         return `${hello}<b>QazEducation өтінімінің мәртебесі жаңартылды.</b>\n\nӨтінім № <b>${number}</b>${status ? `\nМәртебе: <b>${escapeHtml(status)}</b>` : ""}`;
     }
@@ -155,6 +174,17 @@ function buildMessage(params: {
         return `${hello}<b>Результаты конкурса QazEducation</b>\n\nПо итогам текущего отбора вы не вошли в число получателей образовательного гранта или стипендии. Благодарим за участие.`;
       }
       return `${hello}<b>Опубликованы результаты конкурса QazEducation.</b>\n\nРезультат по заявке № <b>${number}</b> доступен в личном кабинете.`;
+
+    case "certificate_issued": {
+      const label = certificateType === "participant"
+        ? "сертификат участника"
+        : certificateType === "grant"
+          ? "сертификат победителя образовательного гранта"
+          : certificateType === "scholarship"
+            ? "сертификат стипендиата"
+            : "сертификат финалиста Top-30";
+      return `${hello}📜 <b>Сертификат готов</b>\n\nВам выдан ${label}.${certificateNumber ? `\nСертификат № <b>${certificateNumber}</b>` : ""}\n\nСкачать документ и проверить QR: https://qazeducation.kz/profile#certificates`;
+    }
 
     default:
       return `${hello}<b>Статус заявки QazEducation обновлён.</b>\n\nЗаявка № <b>${number}</b>${status ? `\nСтатус: <b>${escapeHtml(status)}</b>` : ""}`;
@@ -323,7 +353,11 @@ async function processQueue(params: {
 async function competitionDeliveryCounts(
   supabaseAdmin: ReturnType<typeof getAdminClient>,
 ) {
-  const eventTypes = ["competition_result", "competition_final_rejected"];
+  const eventTypes = [
+    "competition_result",
+    "competition_final_rejected",
+    "certificate_issued",
+  ];
 
   const [pendingRes, failedRes, sentRes] = await Promise.all([
     supabaseAdmin
@@ -386,22 +420,27 @@ export default {
       const applicationId = String(body?.application_id || "").trim();
 
       const supabaseAdmin = getAdminClient();
+      const internalServerCall = token === getServerKey();
+      let callerId = "";
+      let isAdmin = internalServerCall;
 
-      const { data: userData, error: userError } =
-        await supabaseAdmin.auth.getUser(token);
+      if (!internalServerCall) {
+        const { data: userData, error: userError } =
+          await supabaseAdmin.auth.getUser(token);
 
-      if (userError || !userData?.user) {
-        return json({ error: "Unauthorized" }, 401);
+        if (userError || !userData?.user) {
+          return json({ error: "Unauthorized" }, 401);
+        }
+
+        callerId = userData.user.id;
+        const { data: adminRow } = await supabaseAdmin
+          .from("admin_users")
+          .select("user_id")
+          .eq("user_id", callerId)
+          .maybeSingle();
+
+        isAdmin = Boolean(adminRow);
       }
-
-      const callerId = userData.user.id;
-      const { data: adminRow } = await supabaseAdmin
-        .from("admin_users")
-        .select("user_id")
-        .eq("user_id", callerId)
-        .maybeSingle();
-
-      const isAdmin = Boolean(adminRow);
 
       if (bulkCompetitionResults) {
         if (!isAdmin) {
@@ -409,7 +448,11 @@ export default {
         }
 
         const targetStatus = retryFailed ? "failed" : "pending";
-        const eventTypes = ["competition_result", "competition_final_rejected"];
+        const eventTypes = [
+          "competition_result",
+          "competition_final_rejected",
+          "certificate_issued",
+        ];
 
         const { data: queue, error: queueError } = await supabaseAdmin
           .from("notifications")

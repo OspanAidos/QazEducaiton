@@ -27,7 +27,36 @@ export default {
       if(payment.provider_payment_id && String(evidence.id)!==payment.provider_payment_id)
         return json({ok:false,error:"invoice_mismatch"},409);
       // Re-read the invoice with our server key; don't trust out-of-order snapshots.
-      await syncPayment(db,{...payment,provider_payment_id:String(evidence.id)},evidence);
+      const synced = await syncPayment(
+        db,
+        {...payment,provider_payment_id:String(evidence.id)},
+        evidence,
+      );
+
+      // Payment and automatic submission are already committed at this point.
+      // Notification delivery is best-effort and must never make ApiPay retry a
+      // successfully processed financial webhook.
+      if (synced?.status === "paid" && payment.payment_type === "competition_fee") {
+        try {
+          const { data: application } = await db
+            .from("applications")
+            .select("id,submitted_at")
+            .eq("user_id", payment.user_id)
+            .maybeSingle();
+
+          if (application?.id && application?.submitted_at) {
+            const { error: notifyError } = await db.functions.invoke(
+              "telegram-notify",
+              { body: { application_id: application.id } },
+            );
+            if (notifyError) {
+              console.error("apipay-webhook: notification dispatch failed");
+            }
+          }
+        } catch {
+          console.error("apipay-webhook: notification dispatch failed");
+        }
+      }
       return json({ok:true});
     } catch(error: any) {
       console.error("apipay-webhook: processing failed",error?.code || error?.name || "error");
