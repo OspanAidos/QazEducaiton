@@ -181,21 +181,31 @@ $$;
 revoke all on function public.crm_auto_sync_status() from public, anon, authenticated;
 grant execute on function public.crm_auto_sync_status() to service_role;
 
--- Вызывается один раз из SQL Editor. Publishable key не является секретным,
--- но сохраняется в Vault, чтобы он не дублировался в тексте задания Cron.
-create or replace function public.crm_install_auto_sync(p_publishable_key text)
+-- Вызывается один раз из SQL Editor. Адрес проекта передаётся явно, поэтому
+-- preview-база физически не сможет по ошибке запускать worker production.
+drop function if exists public.crm_install_auto_sync(text);
+
+create or replace function public.crm_install_auto_sync(
+  p_publishable_key text,
+  p_project_ref text
+)
 returns jsonb
 language plpgsql
 security definer
 set search_path = ''
 as $$
 declare
+  clean_project_ref text := lower(trim(coalesce(p_project_ref, '')));
   publishable_secret_id uuid;
   worker_secret_exists boolean;
   job_id bigint;
 begin
   if length(trim(coalesce(p_publishable_key, ''))) < 20 then
     raise exception 'Укажите действующий Supabase publishable/anon key';
+  end if;
+
+  if clean_project_ref !~ '^[a-z0-9]{20}$' then
+    raise exception 'Укажите точный project ref Supabase';
   end if;
 
   select id into publishable_secret_id
@@ -238,9 +248,9 @@ begin
   select cron.schedule(
     'qazeducation-amocrm-auto-sync',
     '* * * * *',
-    $cron$
+    format($cron$
       select net.http_post(
-        url := 'https://fdoduxdwkgnldrzzxovu.supabase.co/functions/v1/amocrm-sync',
+        url := %L,
         headers := jsonb_build_object(
           'Content-Type', 'application/json',
           'apikey', (
@@ -255,7 +265,7 @@ begin
         body := jsonb_build_object('action', 'worker'),
         timeout_milliseconds := 55000
       ) as request_id;
-    $cron$
+    $cron$, 'https://' || clean_project_ref || '.supabase.co/functions/v1/amocrm-sync')
   ) into job_id;
 
   return jsonb_build_object(
@@ -267,8 +277,8 @@ begin
 end;
 $$;
 
-revoke all on function public.crm_install_auto_sync(text)
+revoke all on function public.crm_install_auto_sync(text, text)
   from public, anon, authenticated, service_role;
 
-comment on function public.crm_install_auto_sync(text) is
+comment on function public.crm_install_auto_sync(text, text) is
   'Run once from Supabase SQL Editor to install the automatic amoCRM queue worker.';

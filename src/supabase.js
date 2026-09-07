@@ -13,17 +13,27 @@
  * ошибкой. Так публичные страницы работают даже без Supabase.
  */
 import { createClient } from "@supabase/supabase-js";
+import { appEnvironment, validateSupabaseBinding } from "./environment.js";
 
 const url = import.meta.env.VITE_SUPABASE_URL;
 const publishableKey =
   import.meta.env.VITE_SUPABASE_PUBLISHABLE_KEY ||
   import.meta.env.VITE_SUPABASE_ANON_KEY;
 
-export const isSupabaseConfigured = Boolean(url && publishableKey);
+const binding = validateSupabaseBinding({
+  url,
+  publishableKey,
+  environment: appEnvironment,
+  expectedProjectRef: import.meta.env.VITE_EXPECTED_SUPABASE_PROJECT_REF,
+});
+
+export const supabaseConfigurationIssue = binding.issue;
+export const isSupabaseConfigured = binding.configured;
 
 const createConfigurationError = () => {
   const error = new Error(
-    "Supabase не настроен: заполните VITE_SUPABASE_URL и VITE_SUPABASE_PUBLISHABLE_KEY в .env.local"
+    supabaseConfigurationIssue ||
+      "Supabase не настроен: заполните VITE_SUPABASE_URL и VITE_SUPABASE_PUBLISHABLE_KEY в .env.local"
   );
   error.code = "SUPABASE_NOT_CONFIGURED";
   return error;
@@ -85,7 +95,8 @@ const stub = {
 
 if (!isSupabaseConfigured) {
   console.warn(
-    "Supabase не настроен: восстановите .env.local, заполните VITE_SUPABASE_URL и VITE_SUPABASE_PUBLISHABLE_KEY, затем перезапустите сайт"
+    supabaseConfigurationIssue ||
+      "Supabase не настроен: восстановите .env.local, заполните VITE_SUPABASE_URL и VITE_SUPABASE_PUBLISHABLE_KEY, затем перезапустите сайт"
   );
 }
 

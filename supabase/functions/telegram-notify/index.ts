@@ -58,6 +58,19 @@ function escapeHtml(value: unknown) {
     .replaceAll('"', "&quot;");
 }
 
+function notificationSiteOrigin() {
+  const fallback = "https://qazeducation.kz";
+  const raw = Deno.env.get("SITE_ORIGIN") || fallback;
+
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:") return fallback;
+    return `${url.protocol}//${url.host}`;
+  } catch {
+    return fallback;
+  }
+}
+
 function applicationNumber(payload: Record<string, unknown>) {
   const value = String(payload?.application_number ?? "").trim();
   return value ? escapeHtml(value) : "—";
@@ -68,8 +81,9 @@ function buildMessage(params: {
   payload: Record<string, unknown>;
   lang: string;
   firstName?: string | null;
+  siteOrigin: string;
 }) {
-  const { eventType, payload, firstName } = params;
+  const { eventType, payload, firstName, siteOrigin } = params;
   const lang = params.lang === "kk" ? "kk" : "ru";
   const number = applicationNumber(payload);
   const comment = escapeHtml(payload?.admin_comment);
@@ -130,7 +144,7 @@ function buildMessage(params: {
             : certificateType === "scholarship"
               ? "стипендиат сертификаты"
               : "Top-30 финалист сертификаты";
-        return `${hello}📜 <b>Сертификат дайын</b>\n\nСізге ${label} берілді.${certificateNumber ? `\nСертификат № <b>${certificateNumber}</b>` : ""}\n\nЖүктеу және QR арқылы тексеру: https://qazeducation.kz/profile#certificates`;
+        return `${hello}📜 <b>Сертификат дайын</b>\n\nСізге ${label} берілді.${certificateNumber ? `\nСертификат № <b>${certificateNumber}</b>` : ""}\n\nЖүктеу және QR арқылы тексеру: ${siteOrigin}/profile#certificates`;
       }
 
       default:
@@ -183,7 +197,7 @@ function buildMessage(params: {
           : certificateType === "scholarship"
             ? "сертификат стипендиата"
             : "сертификат финалиста Top-30";
-      return `${hello}📜 <b>Сертификат готов</b>\n\nВам выдан ${label}.${certificateNumber ? `\nСертификат № <b>${certificateNumber}</b>` : ""}\n\nСкачать документ и проверить QR: https://qazeducation.kz/profile#certificates`;
+      return `${hello}📜 <b>Сертификат готов</b>\n\nВам выдан ${label}.${certificateNumber ? `\nСертификат № <b>${certificateNumber}</b>` : ""}\n\nСкачать документ и проверить QR: ${siteOrigin}/profile#certificates`;
     }
 
     default:
@@ -235,6 +249,7 @@ async function processQueue(params: {
   isAdmin: boolean;
 }) {
   const { supabaseAdmin, botToken, queue, callerId, isAdmin } = params;
+  const siteOrigin = notificationSiteOrigin();
 
   if (!queue.length) {
     return { sent: 0, failed: 0, skipped: 0, results: [] };
@@ -312,6 +327,7 @@ async function processQueue(params: {
         payload: item.payload || {},
         lang: profile?.lang || "ru",
         firstName: profile?.first_name || null,
+        siteOrigin,
       });
 
       const message = await sendTelegram(botToken, chatId, text);

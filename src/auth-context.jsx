@@ -97,12 +97,9 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    const number =
-      "QE-" + new Date().getFullYear() + "-" + String(Date.now()).slice(-6);
-
     const { data: created, error: createError } = await supabase
       .from("applications")
-      .insert({ user_id: userId, number, status: "draft", progress: 0 })
+      .insert({ user_id: userId })
       .select(APPLICATION_FIELDS)
       .maybeSingle();
 
@@ -110,9 +107,7 @@ export function AuthProvider({ children }) {
       console.error("create application:", createError);
     }
 
-    setApplication(
-      created ?? { number, status: "draft", progress: 0, deadline: null }
-    );
+    setApplication(created ?? null);
   }, []);
 
   const loadSessionUser = useCallback(

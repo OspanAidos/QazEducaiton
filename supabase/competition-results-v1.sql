@@ -38,7 +38,7 @@ create table if not exists public.competition_cycles (
   top30_quota integer not null default 30,
   applications_open_at timestamptz not null default '2026-08-10 00:00:00+05',
   applications_close_at timestamptz not null default '2026-09-30 23:59:59+05',
-  allows_foreign_participants boolean not null default false,
+  allows_foreign_participants boolean not null default true,
   applications_closed_at timestamptz,
   results_published_at timestamptz,
   published_by uuid references auth.users(id) on delete set null,
@@ -53,7 +53,7 @@ create table if not exists public.competition_cycles (
 alter table public.competition_cycles
   add column if not exists applications_open_at timestamptz not null default '2026-08-10 00:00:00+05',
   add column if not exists applications_close_at timestamptz not null default '2026-09-30 23:59:59+05',
-  add column if not exists allows_foreign_participants boolean not null default false;
+  add column if not exists allows_foreign_participants boolean not null default true;
 
 insert into public.competition_cycles (
   id,
@@ -62,15 +62,17 @@ insert into public.competition_cycles (
   scholarship_quota,
   top30_quota,
   applications_open_at,
-  applications_close_at
+  applications_close_at,
+  allows_foreign_participants
 )
-values (2026, 'open', 10, 30, 30, '2026-08-10 00:00:00+05', '2026-09-30 23:59:59+05')
+values (2026, 'open', 10, 30, 30, '2026-08-10 00:00:00+05', '2026-09-30 23:59:59+05', true)
 on conflict (id) do nothing;
 
 update public.competition_cycles
 set scholarship_quota = 30,
     applications_open_at = '2026-08-10 00:00:00+05',
     applications_close_at = '2026-09-30 23:59:59+05',
+    allows_foreign_participants = true,
     updated_at = now()
 where id = 2026
   and status <> 'results_published';

@@ -59,6 +59,12 @@ test("automatic worker is authenticated, scheduled every minute, and keeps JWT v
   assert.doesNotMatch(autoSql, /AMO_LONG_LIVED_TOKEN\s*=/);
 });
 
+test("automatic worker targets the explicitly selected Supabase project", () => {
+  assert.match(autoSql, /crm_install_auto_sync\(\s*p_publishable_key text,\s*p_project_ref text/s);
+  assert.match(autoSql, /clean_project_ref/);
+  assert.doesNotMatch(autoSql, /fdoduxdwkgnldrzzxovu/);
+});
+
 test("expired leases and failed jobs are retried without parallel creation", () => {
   assert.match(edge, /\.eq\("state", "processing"\)/);
   assert.match(edge, /\.lte\("lease_expires_at", now\)/);

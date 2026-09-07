@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:preview": "vite --mode preview",
     "build": "vite build",
+    "build:preview": "vite build --mode preview",
+    "test": "npm test --prefix tests",
+    "check": "npm run test && npm run build",
     "preview": "vite preview"
   },
   "dependencies": {

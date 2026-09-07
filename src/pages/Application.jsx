@@ -23,6 +23,7 @@ import DocUploader from "../components/DocUploader.jsx";
 import { grantSpecialtyOptions, grantUniversityOptions } from "../grant-catalog.js";
 import { legalDocs } from "../legal-docs.js";
 import { isSupabaseConfigured, supabase } from "../supabase.js";
+import { createDraftSaveQueue } from "../draft-save-queue.js";
 
 
 const SUPPORT_COPY = {
@@ -130,7 +131,7 @@ export default function Application() {
   const [allowsForeign, setAllowsForeign] = useState(false);
   const [cycleSubmissionOpen, setCycleSubmissionOpen] = useState(true);
   const [paymentConfirmed, setPaymentConfirmed] = useState(false);
-  const saveTimer = useRef(null);
+  const saveQueue = useRef(null);
 
   // Первичная загрузка черновика и документов.
   useEffect(() => {
@@ -181,17 +182,39 @@ export default function Application() {
     };
   }, []);
 
-  // Автосохранение (debounce) при изменении полей.
-  const scheduleSave = (patch) => {
-    setSaveState("saving");
-    clearTimeout(saveTimer.current);
-    saveTimer.current = setTimeout(async () => {
-      const result = await saveDraft(user.id, patch);
-      setSaveState(result.ok ? "saved" : "error");
-    }, 700);
-  };
+  // Быстрые изменения объединяются и сохраняются строго последовательно.
+  useEffect(() => {
+    if (!user?.id) return undefined;
 
-  useEffect(() => () => clearTimeout(saveTimer.current), []);
+    const queue = createDraftSaveQueue({
+      save: (patch) => saveDraft(user.id, patch),
+      onState: setSaveState,
+    });
+    saveQueue.current = queue;
+
+    const flushWhenHidden = () => {
+      if (document.visibilityState === "hidden") void queue.flush();
+    };
+    const protectUnsavedDraft = (event) => {
+      if (!queue.hasUnsavedChanges()) return;
+      void queue.flush();
+      event.preventDefault();
+      event.returnValue = "";
+    };
+
+    document.addEventListener("visibilitychange", flushWhenHidden);
+    window.addEventListener("beforeunload", protectUnsavedDraft);
+
+    return () => {
+      document.removeEventListener("visibilitychange", flushWhenHidden);
+      window.removeEventListener("beforeunload", protectUnsavedDraft);
+      void queue.flush();
+      queue.dispose();
+      if (saveQueue.current === queue) saveQueue.current = null;
+    };
+  }, [user?.id]);
+
+  const scheduleSave = (patch) => saveQueue.current?.schedule(patch);
 
   if (!user) return null;
 
@@ -243,7 +266,7 @@ export default function Application() {
 
     setSubmitError("");
     setSubmitting(true);
-    clearTimeout(saveTimer.current);
+    await saveQueue.current?.flush();
 
     const saveResult = await saveDraft(user.id, {
       birth,

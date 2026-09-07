@@ -27,13 +27,10 @@ export async function loadDraft(userId) {
 
 /** Сохранить поля редактируемой заявки (merge в data). */
 export async function saveDraft(userId, patch) {
-  const current = await loadDraft(userId);
-  const nextData = { ...(current?.data || {}), ...patch };
-
-  const { error } = await supabase
-    .from("applications")
-    .update({ data: nextData })
-    .eq("user_id", userId);
+  const { data: result, error } = await supabase.rpc(
+    "save_own_application_draft",
+    { p_patch: patch }
+  );
 
   if (error) {
     console.error("saveDraft error:", error);
@@ -42,7 +39,7 @@ export async function saveDraft(userId, patch) {
 
   void syncOwnApplication("draft_saved");
 
-  return { ok: true, data: nextData };
+  return { ok: true, data: result?.data || patch };
 }
 
 /**

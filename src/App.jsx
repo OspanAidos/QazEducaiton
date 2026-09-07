@@ -4,6 +4,7 @@ import { content } from "./content.js";
 import { AuthProvider, useAuth } from "./auth-context.jsx";
 import { pages } from "./pages-content.js";
 import { LangProvider } from "./lang-context.jsx";
+import { isPreviewEnvironment, siteOrigin } from "./environment.js";
 
 import Header from "./components/Header.jsx";
 import Footer from "./components/Footer.jsx";
@@ -160,7 +161,7 @@ function Layout() {
 
     const canonical = document.querySelector('link[rel="canonical"]');
     const ogUrl = document.querySelector('meta[property="og:url"]');
-    const absoluteUrl = `https://qazeducation.kz${pathname === "/" ? "/" : pathname}`;
+    const absoluteUrl = `${siteOrigin}${pathname === "/" ? "/" : pathname}`;
     canonical?.setAttribute("href", absoluteUrl);
     ogUrl?.setAttribute("content", absoluteUrl);
   }, [pathname, lang]);
@@ -168,6 +169,16 @@ function Layout() {
   return (
     <LangProvider lang={lang}>
       <div className="min-h-[100dvh] bg-bg">
+        {isPreviewEnvironment && (
+          <div
+            role="status"
+            className="bg-accent px-4 py-2 text-center text-sm font-semibold text-on-accent"
+          >
+            {lang === "kk"
+              ? "Алдын ала нұсқа · тек тест деректерін пайдаланыңыз"
+              : "Предварительная версия · используйте только тестовые данные"}
+          </div>
+        )}
         {!adminWorkspace && (
           <Header t={t} lang={lang} onLangChange={setLang} />
         )}
