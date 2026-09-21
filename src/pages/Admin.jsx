@@ -1,13 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { supabase } from "../supabase.js";
 import { useAuth } from "../auth-context.jsx";
-import Reveal from "../components/Reveal.jsx";
 import { Section } from "../components/page-blocks.jsx";
 import { Logo } from "../components/ui.jsx";
 import CompetitionResultsPanel from "../components/CompetitionResultsPanel.jsx";
 import AppealsPanel from "../components/AppealsPanel.jsx";
-import AmoCrmPanel from "../components/AmoCrmPanel.jsx";
-import { syncApplicationAsAdmin } from "../amocrm-sync.js";
 import {
   DECISION_LABELS,
   DOC_LABELS,
@@ -35,6 +32,7 @@ import {
   workflowBucket,
 } from "../admin-domain.js";
 
+const APPLICATION_PREVIEW_COUNT = 6;
 
 const COMMISSION_CRITERIA = {
   grant: [
@@ -123,6 +121,7 @@ export default function Admin() {
   const { signOut } = useAuth();
   const [rows, setRows] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
+  const [showAllApplications, setShowAllApplications] = useState(false);
   const [filter, setFilter] = useState("submitted");
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("all");
@@ -183,7 +182,7 @@ export default function Admin() {
         supabase
           .from("payments")
           .select(
-            "id,user_id,payment_type,amount_tenge,status,provider,provider_payment_id,metadata,paid_at,created_at,updated_at,credit_payment_id,is_sandbox,refunded_tenge"
+            "id,user_id,payment_type,amount_tenge,status,provider,provider_payment_id,metadata,paid_at,created_at,updated_at"
           ),
         supabase
           .from("commission_scores")
@@ -423,6 +422,30 @@ export default function Admin() {
 
   const selected = rows.find((row) => row.id === selectedId) ?? null;
 
+  useEffect(() => {
+    if (!selectedId) return undefined;
+
+    const previousOverflow = document.body.style.overflow;
+    const handleKeyDown = (event) => {
+      if (
+        event.key === "Escape" &&
+        !busy &&
+        !actionModal &&
+        !documentModal
+      ) {
+        setSelectedId(null);
+      }
+    };
+
+    document.body.style.overflow = "hidden";
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [selectedId, busy, actionModal, documentModal]);
+
 
   const filteredRows = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -471,6 +494,18 @@ export default function Admin() {
     dateFrom,
     dateTo,
   ]);
+
+  useEffect(() => {
+    setShowAllApplications(false);
+  }, [filter, search, categoryFilter, supportFilter, paymentFilter, dateFrom, dateTo]);
+
+  const visibleRows = useMemo(
+    () =>
+      showAllApplications
+        ? filteredRows
+        : filteredRows.slice(0, APPLICATION_PREVIEW_COUNT),
+    [filteredRows, showAllApplications]
+  );
 
   const counts = useMemo(() => {
     const result = { all: rows.length };
@@ -638,11 +673,6 @@ export default function Admin() {
     }
 
     const notificationResult = await dispatchTelegramNotifications(selected.id);
-    try {
-      await syncApplicationAsAdmin(selected.id);
-    } catch (crmError) {
-      console.warn("amoCRM sync after admin action:", crmError);
-    }
 
     await loadRows();
     setBusy(false);
@@ -1088,8 +1118,17 @@ export default function Admin() {
         {loading ? (
           <div className="py-16 text-center text-muted">Загружаем заявки…</div>
         ) : (
-          <div className="mt-8 overflow-x-auto rounded-block border border-line">
-            <table className="min-w-[1120px] border-collapse text-left">
+          <div className="mt-8 overflow-hidden rounded-block border border-line">
+            <div className="flex flex-col gap-2 border-b border-line bg-bg-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-ink-2">
+                Показано <strong className="text-ink">{visibleRows.length}</strong> из{" "}
+                <strong className="text-ink">{filteredRows.length}</strong>
+              </p>
+              <p className="text-xs text-muted">Сначала последние заявки</p>
+            </div>
+
+            <div className="overflow-x-auto">
+              <table className="min-w-[1120px] border-collapse text-left">
               <thead className="bg-bg-2">
                 <tr className="border-b border-line text-xs uppercase tracking-[0.08em] text-muted">
                   <th className="px-4 py-3">Заявка</th>
@@ -1099,11 +1138,11 @@ export default function Admin() {
                   <th className="px-4 py-3">Оплата</th>
                   <th className="px-4 py-3">Комплектность</th>
                   <th className="px-4 py-3">Статус</th>
-                  <th className="px-4 py-3">Дата подачи</th>
+                  <th className="px-4 py-3">Дата / обновление</th>
                 </tr>
               </thead>
               <tbody>
-                {filteredRows.map((row) => {
+                {visibleRows.map((row) => {
                   const fullName = [row.profile?.last_name, row.profile?.first_name]
                     .filter(Boolean)
                     .join(" ");
@@ -1112,6 +1151,14 @@ export default function Admin() {
                     <tr
                       key={row.id}
                       onClick={() => setSelectedId(row.id)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          setSelectedId(row.id);
+                        }
+                      }}
+                      tabIndex={0}
+                      aria-label={`Открыть заявку ${row.number ?? "без номера"}`}
                       className={`cursor-pointer border-b border-line transition-colors last:border-0 hover:bg-bg-2 ${
                         selectedId === row.id ? "bg-bg-2" : ""
                       }`}
@@ -1150,36 +1197,94 @@ export default function Admin() {
                       <td className="whitespace-nowrap px-4 py-4 text-sm text-ink-2">
                         {row.isLegacy
                           ? `Регистрация: ${formatDateOnly(row.legacySource?.registered_on)}`
-                          : formatDate(row.submitted_at)}
+                          : row.submitted_at
+                            ? formatDate(row.submitted_at)
+                            : `Обновлено: ${formatDate(row.updated_at || row.created_at)}`}
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
-            </table>
+              </table>
+            </div>
 
             {!filteredRows.length && (
               <div className="px-6 py-12 text-center text-sm text-muted">
                 В выбранной очереди заявок нет.
               </div>
             )}
+
+            {filteredRows.length > APPLICATION_PREVIEW_COUNT && (
+              <div className="flex justify-center border-t border-line bg-bg-2 px-4 py-4">
+                <button
+                  type="button"
+                  onClick={() => setShowAllApplications((current) => !current)}
+                  className="rounded-full border border-line px-5 py-2.5 text-sm font-medium text-ink transition hover:border-accent hover:text-accent"
+                >
+                  {showAllApplications
+                    ? `Свернуть до последних ${APPLICATION_PREVIEW_COUNT}`
+                    : `Показать все · ${filteredRows.length}`}
+                </button>
+              </div>
+            )}
           </div>
         )}
-
-        {selected && (
-          <Reveal>
-            <ApplicationDetail
-              row={selected}
-              busy={busy}
-              openDocument={openDocument}
-              openDocumentReview={openDocumentReview}
-              openActionModal={openActionModal}
-              retryTelegramNotifications={retryTelegramNotifications}
-              activeCommissionCount={activeCommissionCount}
-            />
-          </Reveal>
-        )}
       </Section>
+
+      {selected && (
+        <div
+          className="fixed inset-0 z-[80] flex items-stretch justify-center bg-black/70 p-0 backdrop-blur-sm sm:p-5 lg:p-8"
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="application-detail-title"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget && !busy) {
+              setSelectedId(null);
+            }
+          }}
+        >
+          <div className="flex h-full w-full max-w-[1400px] flex-col overflow-hidden bg-bg shadow-2xl sm:rounded-block sm:border sm:border-line">
+            <div className="z-20 flex items-center justify-between gap-4 border-b border-line bg-bg-2 px-4 py-3 sm:px-6">
+              <div className="min-w-0">
+                <p className="text-xs uppercase tracking-[0.12em] text-accent">
+                  Карточка заявки
+                </p>
+                <p
+                  id="application-detail-title"
+                  className="mt-1 truncate font-display text-lg font-bold text-ink"
+                >
+                  {selected.number ?? "Без номера"} ·{" "}
+                  {[selected.profile?.last_name, selected.profile?.first_name]
+                    .filter(Boolean)
+                    .join(" ") || "Участник"}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => setSelectedId(null)}
+                className="shrink-0 rounded-full border border-line px-4 py-2 text-sm font-medium text-ink transition hover:border-accent hover:text-accent disabled:cursor-not-allowed disabled:opacity-50"
+                aria-label="Закрыть карточку заявки"
+              >
+                Закрыть
+              </button>
+            </div>
+
+            <div className="min-h-0 flex-1 overflow-y-auto p-3 sm:p-5 lg:p-6">
+              <ApplicationDetail
+                insideDialog
+                row={selected}
+                busy={busy}
+                openDocument={openDocument}
+                openDocumentReview={openDocumentReview}
+                openActionModal={openActionModal}
+                retryTelegramNotifications={retryTelegramNotifications}
+                activeCommissionCount={activeCommissionCount}
+              />
+            </div>
+          </div>
+        </div>
+      )}
 
       <Section id="commission" className="border-y border-line bg-bg-2/40 !py-10 lg:!py-14">
         <details className="rounded-block border border-line bg-bg-2">
@@ -1249,9 +1354,8 @@ export default function Admin() {
           <CompactStat label="Конкурсный цикл" value="2026" />
           <CompactStat label="Оплата участия" value="10 000 ₸ · Kaspi QR" />
           <CompactStat label="Гранты" value="10 мест" />
-          <CompactStat label="Стипендии" value="30 мест" note="Top-30 — отдельный рейтинг" />
+          <CompactStat label="Стипендии" value="50 мест" note="Top-30 — отдельный рейтинг" />
         </div>
-        <AmoCrmPanel onToast={setToast} onError={setError} />
       </Section>
     </>
   );
@@ -1825,6 +1929,7 @@ function DocumentReviewModal({
 }
 
 function ApplicationDetail({
+  insideDialog = false,
   row,
   busy,
   openDocument,
@@ -1849,7 +1954,9 @@ function ApplicationDetail({
     !row.isLegacy && ["submitted", "tech_review", "accepted"].includes(row.status);
 
   return (
-    <section className="mt-10 overflow-hidden rounded-block border border-line bg-bg-2">
+    <section
+      className={`${insideDialog ? "mt-0" : "mt-10"} overflow-hidden rounded-block border border-line bg-bg-2`}
+    >
       <div className="border-b border-line bg-bg px-6 py-6 lg:px-9 lg:py-8">
         <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
           <div>

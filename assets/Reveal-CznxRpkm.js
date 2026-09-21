@@ -1,0 +1,1 @@
+import{u as n,j as a,m as s}from"./motion-CTiCuBH7.js";function u({children:e,delay:t=0,className:i=""}){const o=n();return a.jsx(s.div,{className:i,initial:o?!1:{opacity:0,y:28},whileInView:{opacity:1,y:0},viewport:{once:!0,amount:.25},transition:{duration:.7,delay:t,ease:[.16,1,.3,1]},children:e})}export{u as R};
